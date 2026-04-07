@@ -499,6 +499,16 @@ Check all of these. Report pass/fail for each:
 
 If any check fails, explain the fix and offer to apply it. Do not package until all checks pass.
 
+### Run the validation script
+
+If the skill's validation script is available, use it:
+
+```bash
+bash ~/.claude/skills/teams-publish/scripts/validate-package.sh ./teams-app
+```
+
+This runs all the checks above automatically and reports pass/fail/warn per check. If the script is not available (skill installed without scripts), run the manual checks above.
+
 ### Build the zip
 
 ```bash
