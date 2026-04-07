@@ -227,11 +227,11 @@ Search for existing dialog/modal components before creating new ones. Check: `co
 #### Fix: window.open → conditional Teams/browser
 
 ```typescript
-import { useTeams } from '@/components/TeamsContext'; // generated in auth step
+import { useTeamsContext } from '@/components/TeamsContext'; // generated in auth step
 import { app } from '@microsoft/teams-js';
 
 // In the component:
-const { isTeams } = useTeams();
+const { isTeams } = useTeamsContext();
 
 function openUrl(url: string) {
   if (isTeams) {
@@ -260,11 +260,11 @@ Replace all `localStorage.getItem()` with `safeGetItem()` and `localStorage.setI
 In Teams context, hide the manual theme toggle and sync to the Teams theme instead:
 
 ```typescript
-import { useTeams } from '@/components/TeamsContext';
+import { useTeamsContext } from '@/components/TeamsContext';
 import { app } from '@microsoft/teams-js';
 
 // In the theme provider or layout:
-const { isTeams } = useTeams();
+const { isTeams } = useTeamsContext();
 
 useEffect(() => {
   if (!isTeams) return;
@@ -496,6 +496,7 @@ Check all of these. Report pass/fail for each:
 6. No extra files in `./teams-app/` beyond `manifest.json`, `color.png`, `outline.png`
 7. `validDomains` entries don't use wildcards for the specific app domain (wildcards only allowed for platform-level domains like `*.vercel.app`)
 8. If `staticTabs` is present, no shared channel scopes exist anywhere in the manifest
+9. `contentUrl` / `configurationUrl` includes `?inTeams=true`
 
 If any check fails, explain the fix and offer to apply it. Do not package until all checks pass.
 
