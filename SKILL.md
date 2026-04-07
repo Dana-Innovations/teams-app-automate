@@ -197,16 +197,95 @@ If using NextAuth / Auth.js, this means customizing the cookie options in the au
 - **Don't add Azure AD app registration.** This pattern uses Teams' built-in identity via `app.getContext()` — no OAuth app registration, no client secrets, no token exchange. If the user later wants SSO token exchange for calling Microsoft Graph, that's a separate enhancement, not a prerequisite.
 - **Don't rely solely on `Sec-Fetch-Dest: iframe`.** This header is inconsistent across browsers and can be stripped by proxies. The `?inTeams=true` manifest param is reliable because Teams always loads the exact `contentUrl` from the manifest.
 
-### Other blockers to detect
+### Other blockers to detect and fix
 
-| Pattern | Why it breaks | Replacement |
+| Pattern | Why it breaks | Fix |
 |---|---|---|
-| `alert(` / `confirm(` / `prompt(` | Native dialogs blocked in Teams iframe | Custom modal component, or `microsoftTeams.dialog.open()` |
-| `window.open(` | Popups blocked in iframe | `microsoftTeams.app.openLink(url)` or `<a target="_blank">` with `rel="noopener"` |
-| `localStorage` / `sessionStorage` | Blocked in third-party iframe context (Safari, some Edge configs) | Add try/catch fallback; warn user about cross-browser restrictions |
-| Dark mode toggle / theme switcher UI | Teams controls the theme — user toggles conflict | Hook into `app.registerOnThemeChangeHandler()` and apply Teams theme classes |
+| `alert(` / `confirm(` / `prompt(` | Native dialogs blocked in Teams iframe | Replace with a modal component |
+| `window.open(` | Popups blocked in iframe | Conditional: Teams `app.openLink()` vs browser `window.open()` |
+| `localStorage` / `sessionStorage` | May be blocked in third-party iframe context | Wrap in try/catch with in-memory fallback |
+| Dark mode toggle / theme switcher | Teams controls the theme | In Teams context, hide toggle and sync to Teams theme |
 
 Note: Teams SDK initialization is handled by the dual-auth bypass step above — `app.initialize()` + `app.notifySuccess()` are part of the TeamsContext provider. Don't add them separately.
+
+#### Fix: Native dialogs → modal component
+
+If the project uses Radix UI, Shadcn, or has an existing modal/dialog component, use it. If not, create a minimal confirm dialog:
+
+```tsx
+// Use the project's existing dialog system when available.
+// Example using the existing component library:
+const confirmed = await showConfirmDialog({
+  title: 'Disconnect account',
+  description: `Disconnect your ${provider} account?`,
+});
+if (!confirmed) return;
+```
+
+Search for existing dialog/modal components before creating new ones. Check: `components/ui/dialog`, `components/ui/modal`, `components/ui/alert-dialog`, or any Radix/Shadcn dialog imports.
+
+#### Fix: window.open → conditional Teams/browser
+
+```typescript
+import { useTeams } from '@/components/TeamsContext'; // generated in auth step
+import { app } from '@microsoft/teams-js';
+
+// In the component:
+const { isTeams } = useTeams();
+
+function openUrl(url: string) {
+  if (isTeams) {
+    app.openLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+```
+
+#### Fix: localStorage → safe wrapper
+
+```typescript
+function safeGetItem(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function safeSetItem(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* iframe restriction — ignore */ }
+}
+```
+
+Replace all `localStorage.getItem()` with `safeGetItem()` and `localStorage.setItem()` with `safeSetItem()`. Place the helper in a utils file the project already uses, or create `lib/safe-storage.ts`.
+
+#### Fix: Theme toggle → Teams theme sync
+
+In Teams context, hide the manual theme toggle and sync to the Teams theme instead:
+
+```typescript
+import { useTeams } from '@/components/TeamsContext';
+import { app } from '@microsoft/teams-js';
+
+// In the theme provider or layout:
+const { isTeams } = useTeams();
+
+useEffect(() => {
+  if (!isTeams) return;
+  // Set initial theme from Teams context
+  app.getContext().then(ctx => {
+    const teamsTheme = ctx.app?.theme ?? 'default';
+    const appTheme = teamsTheme === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', appTheme);
+  });
+  // Listen for theme changes
+  app.registerOnThemeChangeHandler((theme) => {
+    const appTheme = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', appTheme);
+  });
+}, [isTeams]);
+```
+
+In Teams context, hide the toggle button:
+```tsx
+{!isTeams && <ThemeToggle />}
+```
 
 ### Header checks
 
