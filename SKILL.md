@@ -34,7 +34,44 @@ Gather four things. Infer from project context when possible — only ask for wh
 
 Read the user's project files. Detect and offer to fix these Teams iframe blockers:
 
-### Blockers to detect
+### Auth stripping (highest priority)
+
+Teams handles authentication — the user is already signed into their Microsoft tenant. Custom auth layers (login pages, session middleware, auth redirects, SSO flows) become obstacles inside the Teams iframe: they either redirect-loop, show a login wall the user can't complete, or block the app entirely.
+
+**Detect these auth patterns and offer to bypass them in Teams context:**
+
+1. **Auth middleware** — files like `middleware.ts`, `middleware.js`, or framework-specific auth guards that redirect unauthenticated requests to `/login`. Add a Teams context check: if the request is inside a Teams iframe, skip the auth redirect.
+2. **Login pages / routes** — `/login`, `/auth`, `/signin` routes. These aren't needed in Teams. The app should detect Teams context on mount and skip straight to the main app.
+3. **Session cookie checks** — client-side code that reads session cookies and redirects if missing. Wrap in a Teams context check.
+4. **SSO redirect flows** — OAuth/OIDC redirects (Okta, Auth0, Supabase Auth, etc.) that navigate away from the app. These break inside an iframe. Bypass entirely in Teams context.
+
+**Implementation pattern:**
+
+On the client, detect Teams context early in the app lifecycle:
+
+```typescript
+import { app } from '@microsoft/teams-js';
+
+let isTeamsContext = false;
+try {
+  await app.initialize();
+  isTeamsContext = true;
+  const context = await app.getContext();
+  // context.user has the authenticated user's identity from Teams
+  app.notifySuccess();
+} catch {
+  // Not in Teams — fall through to normal auth
+}
+```
+
+On the server (middleware), detect Teams iframe requests. Options:
+- Check the `Sec-Fetch-Dest: iframe` header
+- Pass a query param or header from the client after Teams SDK init confirms context
+- Skip auth for requests with a valid Teams SSO token (if using Teams SSO token exchange)
+
+The goal: **a user opening the app in Teams never sees a login screen.** They're already authenticated by Teams. The app uses `app.getContext()` to know who they are.
+
+### Other blockers to detect
 
 | Pattern | Why it breaks | Replacement |
 |---|---|---|
@@ -42,7 +79,8 @@ Read the user's project files. Detect and offer to fix these Teams iframe blocke
 | `window.open(` | Popups blocked in iframe | `microsoftTeams.app.openLink(url)` or `<a target="_blank">` with `rel="noopener"` |
 | `localStorage` / `sessionStorage` | Blocked in third-party iframe context (Safari, some Edge configs) | Add try/catch fallback; warn user about cross-browser restrictions |
 | Dark mode toggle / theme switcher UI | Teams controls the theme — user toggles conflict | Hook into `app.registerOnThemeChangeHandler()` and apply Teams theme classes |
-| No Teams SDK initialization | App loads forever (spinner never clears) | Add `@microsoft/teams-js`, call `await app.initialize()` then `app.notifySuccess()` |
+
+Note: Teams SDK initialization is handled by the auth stripping step above — `app.initialize()` + `app.notifySuccess()` are part of that pattern. Don't add them separately.
 
 ### Header checks
 
@@ -200,6 +238,7 @@ Print this for the user, filling in their specific details:
 ### Pre-submission checklist
 - [ ] App is live and accessible at {{app_url}}
 - [ ] App loads in an incognito/private browser window
+- [ ] Auth is bypassed in Teams context — no login screen appears when loaded in an iframe
 - [ ] No `alert()` / `confirm()` / `prompt()` calls in codebase
 - [ ] No `X-Frame-Options: DENY` or `SAMEORIGIN` header
 - [ ] Privacy page exists at {{app_url}}/privacy
@@ -237,6 +276,8 @@ Use this if the user hits problems at any phase:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| Login screen inside Teams | Auth middleware redirecting to `/login` | Detect Teams context and bypass auth — Teams already authenticated the user |
+| Redirect loop in iframe | SSO/OAuth flow trying to navigate away | Strip SSO redirects in Teams context; use `app.getContext()` for identity |
 | White screen / blank iframe | `X-Frame-Options` or CSP `frame-ancestors` blocking Teams | Remove restrictive header or add `teams.microsoft.com *.teams.microsoft.com *.skype.com` to `frame-ancestors` |
 | Infinite loading spinner | Missing `app.notifySuccess()` after Teams SDK init | Add `await app.initialize(); app.notifySuccess();` to app startup |
 | "App not found" after upload | Pending IT approval | Normal. Tell IT admin to approve in Admin Center. |
