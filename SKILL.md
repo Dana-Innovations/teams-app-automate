@@ -277,7 +277,7 @@ Create directory `./teams-app/` and generate `./teams-app/manifest.json` using s
   {
     "entityId": "home",
     "name": "{{app_name}}",
-    "contentUrl": "{{app_url}}",
+    "contentUrl": "{{app_url}}?inTeams=true",
     "websiteUrl": "{{app_url}}",
     "scopes": ["personal"]
   }
@@ -288,12 +288,14 @@ Create directory `./teams-app/` and generate `./teams-app/manifest.json` using s
 ```json
 "configurableTabs": [
   {
-    "configurationUrl": "{{app_url}}/config",
+    "configurationUrl": "{{app_url}}/config?inTeams=true",
     "canUpdateConfiguration": true,
     "scopes": ["team", "groupChat"]
   }
 ]
 ```
+Note: `contentUrl` / `configurationUrl` include `?inTeams=true` so middleware can detect Teams context. `websiteUrl` stays clean — it's the fallback URL when opened in a browser.
+
 Warn: configurable tabs require a `/config` page that uses the Teams SDK to save settings via `pages.config.setConfig()`. If the user doesn't have one, explain what it needs to do.
 
 **Both** — add both arrays, but enforce the Hard Rule: no shared channel scopes alongside `staticTabs`.
