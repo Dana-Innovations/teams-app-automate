@@ -304,6 +304,48 @@ Warn: configurable tabs require a `/config` page that uses the Teams SDK to save
 
 Show the complete generated manifest. Ask: "Does this look right?" Write to `./teams-app/manifest.json` only after confirmation.
 
+### Generate privacy and terms pages (if missing)
+
+Check if the app has routes at `/privacy` and `/terms`. If not, offer to create stub pages.
+
+**For Next.js App Router projects**, generate:
+
+`app/privacy/page.tsx`:
+```tsx
+export default function PrivacyPage() {
+  return (
+    <main style={{ maxWidth: 640, margin: '0 auto', padding: '2rem' }}>
+      <h1>Privacy Policy</h1>
+      <p>{{app_name}} is an internal tool. No personal data is shared with third parties.</p>
+      <p>User identity is provided by Microsoft Teams or your organization&apos;s SSO provider.
+         No additional data collection occurs beyond what is necessary to operate the application.</p>
+      <p>For questions, contact your IT administrator.</p>
+    </main>
+  );
+}
+```
+
+`app/terms/page.tsx`:
+```tsx
+export default function TermsPage() {
+  return (
+    <main style={{ maxWidth: 640, margin: '0 auto', padding: '2rem' }}>
+      <h1>Terms of Use</h1>
+      <p>{{app_name}} is provided for internal use within your organization.</p>
+      <p>Use of this application is subject to your organization&apos;s acceptable use policies.
+         This tool is provided as-is for internal productivity purposes.</p>
+      <p>For questions, contact your IT administrator.</p>
+    </main>
+  );
+}
+```
+
+**For other frameworks**, generate equivalent simple HTML pages at the right paths.
+
+These are intentionally minimal — they satisfy the Teams manifest requirement. Tell the user: "These are stub pages. You can customize them later, but they must exist at these URLs before submission."
+
+Make sure these routes are **excluded from auth middleware** — they need to be publicly accessible. Add them to the public routes list in the middleware bypass.
+
 ## Phase 3: Icon Guidance
 
 Teams requires two icons **in the zip alongside manifest.json**:
