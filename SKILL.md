@@ -449,6 +449,37 @@ Check common locations for icons:
 
 If found, suggest resizing. If not found, tell the user what to create and where to put it.
 
+### Convert or generate icons
+
+If a PNG source exists, offer to resize it:
+
+**Using sips (macOS built-in, no install needed):**
+```bash
+# Resize to 192x192 for color icon
+sips -z 192 192 source.png --out ./teams-app/color.png
+
+# Resize to 32x32 for outline icon (user must make it white-on-transparent separately)
+sips -z 32 32 source.png --out ./teams-app/outline.png
+```
+
+**Using ImageMagick (if installed):**
+```bash
+# Convert SVG to 192x192 PNG
+magick favicon.svg -resize 192x192 -background none -gravity center -extent 192x192 ./teams-app/color.png
+
+# Convert SVG to 32x32 white-on-transparent outline
+magick favicon.svg -resize 32x32 -background none -gravity center -extent 32x32 -colorspace gray -fill white -opaque black ./teams-app/outline.png
+```
+
+**Check which tools are available:**
+```bash
+which sips magick convert 2>/dev/null
+```
+
+If no conversion tool is available and no suitable icons exist, tell the user exactly what to provide:
+- `color.png`: 192x192, full-color, PNG format, placed in `./teams-app/`
+- `outline.png`: 32x32, white shapes on transparent background, PNG format, placed in `./teams-app/`
+
 Do NOT proceed to Phase 4 until both icon files exist in `./teams-app/`.
 
 ## Phase 4: Package & Validate
