@@ -34,42 +34,168 @@ Gather four things. Infer from project context when possible — only ask for wh
 
 Read the user's project files. Detect and offer to fix these Teams iframe blockers:
 
-### Auth stripping (highest priority)
+### Dual-auth bypass (highest priority)
 
-Teams handles authentication — the user is already signed into their Microsoft tenant. Custom auth layers (login pages, session middleware, auth redirects, SSO flows) become obstacles inside the Teams iframe: they either redirect-loop, show a login wall the user can't complete, or block the app entirely.
+The app must serve two audiences from a single deployment: **Teams users** (already authenticated by Microsoft) and **browser users** (who need the existing login flow). Never remove existing auth — add a Teams bypass lane that runs alongside it.
 
-**Detect these auth patterns and offer to bypass them in Teams context:**
+This pattern is proven in production (talent-management-next). It has three layers: manifest query param, server middleware, and client-side Teams context detection.
 
-1. **Auth middleware** — files like `middleware.ts`, `middleware.js`, or framework-specific auth guards that redirect unauthenticated requests to `/login`. Add a Teams context check: if the request is inside a Teams iframe, skip the auth redirect.
-2. **Login pages / routes** — `/login`, `/auth`, `/signin` routes. These aren't needed in Teams. The app should detect Teams context on mount and skip straight to the main app.
-3. **Session cookie checks** — client-side code that reads session cookies and redirects if missing. Wrap in a Teams context check.
-4. **SSO redirect flows** — OAuth/OIDC redirects (Okta, Auth0, Supabase Auth, etc.) that navigate away from the app. These break inside an iframe. Bypass entirely in Teams context.
+#### 1. Manifest injects `?inTeams=true`
 
-**Implementation pattern:**
+In the generated manifest, the `contentUrl` (and `websiteUrl` for static tabs) must append `?inTeams=true` to the app URL. This tells the server the request is from Teams **before any client JS loads**.
 
-On the client, detect Teams context early in the app lifecycle:
+```json
+"staticTabs": [
+  {
+    "entityId": "home",
+    "name": "{{app_name}}",
+    "contentUrl": "{{app_url}}?inTeams=true",
+    "websiteUrl": "{{app_url}}",
+    "scopes": ["personal"]
+  }
+]
+```
+
+For configurable tabs, append it to `configurationUrl`:
+```json
+"configurableTabs": [
+  {
+    "configurationUrl": "{{app_url}}/config?inTeams=true",
+    "canUpdateConfiguration": true,
+    "scopes": ["team", "groupChat"]
+  }
+]
+```
+
+#### 2. Middleware detects Teams context and skips auth
+
+Find the project's auth middleware (e.g., `middleware.ts`, `middleware.js`, auth guards). Add a check at the very top: if the `inTeams=true` query param is present, skip the auth redirect and let the request through to the client.
+
+**Next.js `middleware.ts` pattern:**
 
 ```typescript
-import { app } from '@microsoft/teams-js';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-let isTeamsContext = false;
-try {
-  await app.initialize();
-  isTeamsContext = true;
-  const context = await app.getContext();
-  // context.user has the authenticated user's identity from Teams
-  app.notifySuccess();
-} catch {
-  // Not in Teams — fall through to normal auth
+export function middleware(request: NextRequest) {
+  const { searchParams } = request.nextUrl;
+
+  // Teams iframe bypass — let the client-side TeamsContext provider handle identity
+  if (searchParams.get('inTeams') === 'true') {
+    return NextResponse.next();
+  }
+
+  // --- existing auth logic below (untouched) ---
+  // e.g., check session cookie, redirect to /login, etc.
 }
 ```
 
-On the server (middleware), detect Teams iframe requests. Options:
-- Check the `Sec-Fetch-Dest: iframe` header
-- Pass a query param or header from the client after Teams SDK init confirms context
-- Skip auth for requests with a valid Teams SSO token (if using Teams SSO token exchange)
+For other frameworks (Express, Fastify, etc.), apply the same pattern: check for `inTeams=true` in the query string before any auth redirect logic.
 
-The goal: **a user opening the app in Teams never sees a login screen.** They're already authenticated by Teams. The app uses `app.getContext()` to know who they are.
+**Important:** This is safe because `inTeams=true` only skips the *redirect to a login page*. The client still needs to prove it's in Teams via the SDK (next step). A browser user who manually adds `?inTeams=true` would land on the app but get no session/identity unless they're actually inside the Teams iframe where `app.initialize()` succeeds.
+
+#### 3. Client-side TeamsContext provider
+
+Generate a React context provider that wraps the app. It tries `app.initialize()` from `@microsoft/teams-js` — if it succeeds, the app is in Teams and the user's identity comes from `app.getContext()`. If it fails, the app is in a browser and normal auth takes over.
+
+```typescript
+// components/TeamsContext.tsx
+'use client';
+
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { app } from '@microsoft/teams-js';
+
+interface TeamsContextValue {
+  isTeams: boolean;
+  loading: boolean;
+  userPrincipalName: string | null;
+  displayName: string | null;
+  tenantId: string | null;
+}
+
+const TeamsCtx = createContext<TeamsContextValue>({
+  isTeams: false,
+  loading: true,
+  userPrincipalName: null,
+  displayName: null,
+  tenantId: null,
+});
+
+export function TeamsContextProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<TeamsContextValue>({
+    isTeams: false,
+    loading: true,
+    userPrincipalName: null,
+    displayName: null,
+    tenantId: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initTeams() {
+      try {
+        await app.initialize();
+        const context = await app.getContext();
+
+        if (!cancelled) {
+          setState({
+            isTeams: true,
+            loading: false,
+            userPrincipalName: context.user?.userPrincipalName ?? null,
+            displayName: context.user?.displayName ?? null,
+            tenantId: context.user?.tenant?.id ?? null,
+          });
+        }
+
+        app.notifySuccess();
+      } catch {
+        // Not in Teams — fall through to normal auth
+        if (!cancelled) {
+          setState((prev) => ({ ...prev, isTeams: false, loading: false }));
+        }
+      }
+    }
+
+    initTeams();
+    return () => { cancelled = true; };
+  }, []);
+
+  return <TeamsCtx.Provider value={state}>{children}</TeamsCtx.Provider>;
+}
+
+export const useTeamsContext = () => useContext(TeamsCtx);
+```
+
+Wrap the app's root layout with this provider. Components can then call `useTeamsContext()` to check `isTeams` and access the user's identity without any login flow.
+
+#### 4. Cookie considerations
+
+When the app is loaded inside the Teams iframe, session cookies **must** use `sameSite: 'none'` and `secure: true` — otherwise the browser blocks them in the cross-origin iframe context (especially Safari and Edge).
+
+When the app is loaded in a normal browser, keep `sameSite: 'lax'` (the secure default).
+
+Detect based on the `inTeams` query param at the point where session cookies are set:
+
+```typescript
+const isTeams = request.url.includes('inTeams=true');
+
+const cookieOptions = {
+  httpOnly: true,
+  secure: true,
+  sameSite: isTeams ? 'none' as const : 'lax' as const,
+  path: '/',
+};
+```
+
+If using NextAuth / Auth.js, this means customizing the cookie options in the auth config. If using a custom session system, apply it wherever `Set-Cookie` is issued.
+
+#### 5. What NOT to do
+
+- **Don't remove existing auth.** Browser users still need it. The dual-auth pattern adds a bypass lane — it never deletes the original lane.
+- **Don't require separate builds or deployments.** One codebase, one deployment, two auth paths selected at runtime by the `inTeams` query param.
+- **Don't add Azure AD app registration.** This pattern uses Teams' built-in identity via `app.getContext()` — no OAuth app registration, no client secrets, no token exchange. If the user later wants SSO token exchange for calling Microsoft Graph, that's a separate enhancement, not a prerequisite.
+- **Don't rely solely on `Sec-Fetch-Dest: iframe`.** This header is inconsistent across browsers and can be stripped by proxies. The `?inTeams=true` manifest param is reliable because Teams always loads the exact `contentUrl` from the manifest.
 
 ### Other blockers to detect
 
@@ -80,7 +206,7 @@ The goal: **a user opening the app in Teams never sees a login screen.** They're
 | `localStorage` / `sessionStorage` | Blocked in third-party iframe context (Safari, some Edge configs) | Add try/catch fallback; warn user about cross-browser restrictions |
 | Dark mode toggle / theme switcher UI | Teams controls the theme — user toggles conflict | Hook into `app.registerOnThemeChangeHandler()` and apply Teams theme classes |
 
-Note: Teams SDK initialization is handled by the auth stripping step above — `app.initialize()` + `app.notifySuccess()` are part of that pattern. Don't add them separately.
+Note: Teams SDK initialization is handled by the dual-auth bypass step above — `app.initialize()` + `app.notifySuccess()` are part of the TeamsContext provider. Don't add them separately.
 
 ### Header checks
 
