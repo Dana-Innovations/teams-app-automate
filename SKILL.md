@@ -603,10 +603,12 @@ Hi — I have a Teams app package ready for upload to our org's app catalog.
 
 ### Upload steps
 
-1. Go to [Teams Admin Center — Manage apps](https://admin.teams.microsoft.com/policies/manage-apps)
-2. Click **Upload new app** (or **Actions** → **Upload new app**)
-3. Click **Upload** and select the attached `teams-app-package.zip`
-4. The app will appear in the app list — no separate approval step is needed when an admin uploads directly
+1. Open **Teams**
+2. Click **Apps** in the sidebar
+3. Click **Manage your apps** at the bottom
+4. Click **Upload an app**
+5. Select **Submit an app to your org**
+6. Upload the attached `teams-app-package.zip`
 
 ### After upload
 
