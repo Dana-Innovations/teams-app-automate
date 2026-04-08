@@ -447,11 +447,62 @@ Check common locations for icons:
 - `src/assets/`, `src/images/`
 - Project root `icon.png`, `logo.png`
 
-If found, suggest resizing. If not found, tell the user what to create and where to put it.
+If found, suggest resizing. If not found, present the user with two options:
 
-### Convert or generate icons
+**Option A: "I'll provide my own icons"** — Tell them the exact specs and wait for them to place the files in `./teams-app/`.
 
-If a PNG source exists, offer to resize it:
+**Option B: "Generate icons for me"** — Claude creates them on the fly (see below).
+
+### Generate icons on the fly
+
+If the user wants Claude to generate icons, create them using the app's identity:
+
+1. **color.png (192x192):** Generate an SVG with the app's first letter or initials on a colored background (use the app's primary/accent color if detectable from the codebase, or the manifest `accentColor`). Convert to PNG.
+2. **outline.png (32x32):** Generate the same letter/initials in white on a transparent background. Must be white-only — no other colors, no gradients.
+
+**Generate using Python + built-in libraries:**
+```python
+import subprocess, tempfile, os
+
+app_name = "{{app_name}}"
+accent_color = "{{accentColor}}"
+initial = app_name[0].upper()
+
+# color.png — letter on colored background
+color_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="32" fill="{accent_color}"/>
+  <text x="96" y="96" font-family="Arial, Helvetica, sans-serif" font-size="120"
+        font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">{initial}</text>
+</svg>'''
+
+# outline.png — white letter on transparent background
+outline_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <text x="16" y="16" font-family="Arial, Helvetica, sans-serif" font-size="24"
+        font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">{initial}</text>
+</svg>'''
+
+os.makedirs('./teams-app', exist_ok=True)
+
+# Write SVGs and convert to PNG
+for name, svg, size in [('color', color_svg, 192), ('outline', outline_svg, 32)]:
+    svg_path = f'/tmp/teams-icon-{name}.svg'
+    png_path = f'./teams-app/{name}.png'
+    with open(svg_path, 'w') as f:
+        f.write(svg)
+    # Try rsvg-convert, then magick, then sips
+    if os.system(f'which rsvg-convert >/dev/null 2>&1') == 0:
+        subprocess.run(['rsvg-convert', '-w', str(size), '-h', str(size), svg_path, '-o', png_path])
+    elif os.system(f'which magick >/dev/null 2>&1') == 0:
+        subprocess.run(['magick', svg_path, '-resize', f'{size}x{size}', png_path])
+    else:
+        print(f"Could not convert {name}.svg — install rsvg-convert or ImageMagick, or provide PNGs manually")
+```
+
+Tell the user: "These are placeholder icons using the app initial. You can replace them with proper branded icons later, but **remember: name and logo are locked after first submission.**"
+
+### Convert existing assets
+
+If existing PNG or SVG assets are found and the user prefers to use them:
 
 **Using sips (macOS built-in, no install needed):**
 ```bash
