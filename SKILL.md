@@ -569,34 +569,64 @@ cd ./teams-app && zip -j ../teams-app-package.zip manifest.json color.png outlin
 
 Confirm: "Package created at `./teams-app-package.zip` — ready for submission."
 
-## Phase 5: Submission Checklist
+## Phase 5: IT Handoff
 
-Print this for the user, filling in their specific details:
+The developer does **not** have access to the Teams Admin Center. Their job ends at producing the package. Phase 5 generates a handoff message the developer can send directly to their IT admin.
 
----
+### Developer's pre-handoff checklist
 
-**Your package:** `teams-app-package.zip`
+Before handing off, verify with the developer:
 
-### Pre-submission checklist
-- [ ] App is live and accessible at {{app_url}}
+- [ ] App is deployed and live at {{app_url}}
 - [ ] App loads in an incognito/private browser window
-- [ ] Auth is bypassed in Teams context — no login screen appears when loaded in an iframe
-- [ ] No `alert()` / `confirm()` / `prompt()` calls in codebase
+- [ ] Auth is bypassed in Teams context — no login screen when loaded in an iframe
+- [ ] No `alert()` / `confirm()` / `prompt()` calls remain in codebase
 - [ ] No `X-Frame-Options: DENY` or `SAMEORIGIN` header
 - [ ] Privacy page exists at {{app_url}}/privacy
 - [ ] Terms page exists at {{app_url}}/terms
 - [ ] Icons: `color.png` is 192x192, `outline.png` is 32x32 white-on-transparent
+- [ ] `teams-app-package.zip` has been validated (Phase 4)
 
-### Submit to Teams
-1. Open [Teams Admin Center — Manage apps](https://admin.teams.microsoft.com/policies/manage-apps)
-2. Click **Upload new app** then **Upload an app to your org's app catalog**
-3. Select `teams-app-package.zip`
-4. **Hand off to your IT admin** — they need to review and approve the app in Admin Center
+### Generate the IT handoff message
 
-### After submission
-- The app will **not appear immediately**. This is normal — it's waiting for admin approval.
-- Once approved, users find it in the Teams app store under **Built for your org**.
-- If the upload succeeds but nothing shows up, don't re-upload. Ask IT to check the Admin Center pending queue.
+Print this message for the developer to copy and send to their IT admin (via email, Slack, Teams chat, etc.). Fill in the app-specific details:
+
+---
+
+**Subject: New Teams app ready for upload — {{app_name}}**
+
+Hi — I have a Teams app package ready for upload to our org's app catalog.
+
+**What it is:** {{app_name}} — {{short_description}}
+**App URL:** {{app_url}}
+**Package:** `teams-app-package.zip` (attached)
+
+### Upload steps
+
+1. Go to [Teams Admin Center — Manage apps](https://admin.teams.microsoft.com/policies/manage-apps)
+2. Click **Upload new app** (or **Actions** → **Upload new app**)
+3. Click **Upload** and select the attached `teams-app-package.zip`
+4. The app will appear in the app list — no separate approval step is needed when an admin uploads directly
+
+### After upload
+
+- The app becomes available within **a few hours** under **Built for your org** in the Teams app store
+- Users can search for "{{app_name}}" in the Teams app store to find and install it
+- If you want to push it to specific users automatically, you can pin it via **Teams apps → Setup policies**
+
+### Prerequisites to check
+
+If this is the first custom app for the org, make sure custom apps are enabled:
+- In **Manage apps**, click **Actions** → **Org-wide app settings**
+- Under **Custom apps**, verify **Let users interact with custom apps** is turned **on**
+
+### If something goes wrong
+
+- **Upload fails with a schema error:** The package may need an update — let me know and I'll regenerate it
+- **App doesn't appear after a few hours:** Check that custom apps are enabled in org-wide settings (above)
+- **Users can't find it:** The app may need to be set to **Allowed** status on the Manage apps page, or users may need an app setup policy that includes it
+
+Let me know when it's uploaded — thanks!
 
 ---
 
@@ -622,8 +652,8 @@ Use this if the user hits problems at any phase:
 | Redirect loop in iframe | SSO/OAuth flow trying to navigate away | Strip SSO redirects in Teams context; use `app.getContext()` for identity |
 | White screen / blank iframe | `X-Frame-Options` or CSP `frame-ancestors` blocking Teams | Remove restrictive header or add `teams.microsoft.com *.teams.microsoft.com *.skype.com` to `frame-ancestors` |
 | Infinite loading spinner | Missing `app.notifySuccess()` after Teams SDK init | Add `await app.initialize(); app.notifySuccess();` to app startup |
-| "App not found" after upload | Pending IT approval | Normal. Tell IT admin to approve in Admin Center. |
+| "App not found" after upload | Propagation delay or custom apps disabled | Admin-uploaded apps need a few hours to appear. Check that custom apps are enabled in org-wide settings. |
 | Upload rejects the zip | Schema validation failure | Check manifest against schema 1.16; ensure no extra fields or files in zip |
 | Works in browser, broken in Teams | Native dialog / popup / storage blocker | Re-run Phase 1 scan |
 | Icons rejected | Wrong dimensions or outline uses color | `color.png` must be exactly 192x192, `outline.png` exactly 32x32 white-on-transparent |
-| App approved but users can't find it | App policy not assigned | IT needs to assign the app via Teams app setup policies, or set it to "Allowed" for the org |
+| App uploaded but users can't find it | App not allowed or not pinned | IT needs to set the app to "Allowed" on the Manage apps page, or pin it via app setup policies |
