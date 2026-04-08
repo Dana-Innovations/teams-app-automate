@@ -578,7 +578,7 @@ Before moving to handoff, show the user exactly what IT and every Teams user wil
 > **App name:** {{app_name}}
 > **Icons:** *(show the color.png and outline.png paths so the user can open and inspect them)*
 >
-> The name and icons you submit are **permanent**. Changing them later requires creating an entirely new app registration. Are these right?
+> The name and icons you submit are **permanent**. Changing them later requires resubmitting the zip, which takes another **24–48 hours** to process. Get these right now.
 
 If the user wants to change anything:
 - **Name:** Update `name.short` and `name.full` in `./teams-app/manifest.json`, re-run validation, re-zip
@@ -629,9 +629,10 @@ Hi — I have a Teams app package ready for upload to our org's app catalog.
 
 ### After upload
 
-- The app becomes available within **a few hours** under **Built for your org** in the Teams app store
-- Users can search for "{{app_name}}" in the Teams app store to find and install it
+- **This is not instant.** The app typically takes **24–48 hours** to appear in the Teams app store after submission
+- Once available, users can find it under **Built for your org** in the Teams app store by searching for "{{app_name}}"
 - If you want to push it to specific users automatically, you can pin it via **Teams apps → Setup policies**
+- Any future changes to the app name or icons require resubmitting the zip, which takes another 24–48 hours
 
 ### Prerequisites to check
 
@@ -671,7 +672,7 @@ Use this if the user hits problems at any phase:
 | Redirect loop in iframe | SSO/OAuth flow trying to navigate away | Strip SSO redirects in Teams context; use `app.getContext()` for identity |
 | White screen / blank iframe | `X-Frame-Options` or CSP `frame-ancestors` blocking Teams | Remove restrictive header or add `teams.microsoft.com *.teams.microsoft.com *.skype.com` to `frame-ancestors` |
 | Infinite loading spinner | Missing `app.notifySuccess()` after Teams SDK init | Add `await app.initialize(); app.notifySuccess();` to app startup |
-| "App not found" after upload | Propagation delay or custom apps disabled | Admin-uploaded apps need a few hours to appear. Check that custom apps are enabled in org-wide settings. |
+| "App not found" after upload | Propagation delay (24–48 hrs) or custom apps disabled | Submissions take 24–48 hours to process. If still missing after that, check that custom apps are enabled in org-wide settings. |
 | Upload rejects the zip | Schema validation failure | Check manifest against schema 1.16; ensure no extra fields or files in zip |
 | Works in browser, broken in Teams | Native dialog / popup / storage blocker | Re-run Phase 1 scan |
 | Icons rejected | Wrong dimensions or outline uses color | `color.png` must be exactly 192x192, `outline.png` exactly 32x32 white-on-transparent |
