@@ -567,7 +567,24 @@ This runs all the checks above automatically and reports pass/fail/warn per chec
 cd ./teams-app && zip -j ../teams-app-package.zip manifest.json color.png outline.png
 ```
 
-Confirm: "Package created at `./teams-app-package.zip` — ready for submission."
+Confirm: "Package created at `./teams-app-package.zip`."
+
+### Final confirmation gate
+
+Before moving to handoff, show the user exactly what IT and every Teams user will see:
+
+> **Last chance to change these — they're locked after submission:**
+>
+> **App name:** {{app_name}}
+> **Icons:** *(show the color.png and outline.png paths so the user can open and inspect them)*
+>
+> The name and icons you submit are **permanent**. Changing them later requires creating an entirely new app registration. Are these right?
+
+If the user wants to change anything:
+- **Name:** Update `name.short` and `name.full` in `./teams-app/manifest.json`, re-run validation, re-zip
+- **Icons:** Replace the PNGs in `./teams-app/`, re-run validation, re-zip
+
+Do NOT proceed to Phase 5 until the user explicitly confirms the name and icons are correct.
 
 ## Phase 5: IT Handoff
 
