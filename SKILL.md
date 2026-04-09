@@ -192,10 +192,18 @@ const { isTeams, teamsUser } = useTeamsContext();
 if (isTeams && teamsUser) {
   // Use teamsUser.email / teamsUser.displayName as the authenticated user
   // Skip any session fetch or redirect-to-login logic
+  
+  // IMPORTANT: If the app has roles/permissions stored in a database,
+  // make a lightweight API call to fetch them:
+  const res = await fetch(`/api/auth/role?email=${teamsUser.email}`);
+  const { role, permissions } = await res.json();
+  // Merge role into the user object so admin checks, feature gates, etc. work
 }
 ```
 
-Without this, the app will hit /api/auth/session, get no cookie (it's an iframe), and show a login screen even though middleware let the page through.
+**Don't forget roles and permissions.** Teams SDK gives you identity (email, display name) but knows nothing about your app's internal roles. If the app has admin sections, feature gates, or role-based UI, the auth provider must fetch the user's role from the database after getting their Teams identity. Without this, the user will be authenticated but have no role — admin panels won't render, permission checks will fail silently, and the user will see a stripped-down version of the app.
+
+Create a lightweight API endpoint (e.g., `GET /api/auth/role?email=...`) that looks up the user's role by email and returns it. This endpoint should be accessible without session auth (the `inTeams` cookie or a simple API key is sufficient since the caller is already inside the Teams iframe).
 
 #### 5. Cookie considerations
 
@@ -766,3 +774,4 @@ Use this if the user hits problems at any phase:
 | Auth works on first page but breaks on navigation | `?inTeams=true` lost on client-side navigation | Set an `inTeams` cookie on first Teams load; check cookie in middleware on subsequent requests |
 | In-page links don't switch Teams tabs | SPA client-side routing doesn't notify Teams | Add click interceptor that calls `pages.currentApp.navigateTo()` for tab routes |
 | Re-upload rejected after deleting old app | Teams caches the old app ID | Generate a fresh UUID and bump the version number |
+| Admin section missing / role-based UI broken in Teams | Auth provider sets identity but not role | After getting Teams identity, fetch the user's role from your database via a lightweight API call |
