@@ -317,7 +317,7 @@ Create directory `./teams-app/` and generate `./teams-app/manifest.json` using s
   "version": "1.0.0",
   "id": "{{UUID_V4}}",
   "developer": {
-    "name": "{{developer_name}}",
+    "name": "{{organization_name}}",
     "websiteUrl": "{{app_url}}",
     "privacyUrl": "{{app_url}}/privacy",
     "termsOfUseUrl": "{{app_url}}/terms"
@@ -343,7 +343,7 @@ Create directory `./teams-app/` and generate `./teams-app/manifest.json` using s
 ### Field rules
 
 - **id**: Generate a fresh UUID v4 every time. Use `uuidgen` or Python's `uuid.uuid4()`.
-- **developer.name**: Infer from `package.json` author, `git config user.name`, or ask.
+- **developer.name**: **Always ask the user.** This is the company/organization name that appears in Teams (e.g., "Sonance", "Acme Corp"), not the individual developer's name. Never auto-fill from `git config user.name` — that gives the developer's personal name, which is wrong.
 - **developer.privacyUrl / termsOfUseUrl**: Default to `{{app_url}}/privacy` and `{{app_url}}/terms`. Warn the user: "These pages should exist at these URLs — Teams reviewers may check."
 - **validDomains**: Extract the hostname from the app URL (e.g., `my-app.vercel.app`). If the app is on Vercel with a custom domain, include both the custom domain and `*.vercel.app`.
 - **accentColor**: Default `#4F46E5`. Offer to change.
