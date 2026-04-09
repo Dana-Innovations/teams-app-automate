@@ -78,19 +78,30 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
+  // Teams detection — check query param (initial load) or cookie (subsequent navigation)
+  const inTeams = request.nextUrl.searchParams.get('inTeams') === 'true';
+  const hasTeamsCookie = request.cookies.get('inTeams')?.value === 'true';
 
-  // Teams iframe bypass — let the client-side TeamsContext provider handle identity
-  if (searchParams.get('inTeams') === 'true') {
-    return NextResponse.next();
+  if (inTeams || hasTeamsCookie) {
+    const response = NextResponse.next();
+    if (inTeams && !hasTeamsCookie) {
+      // Set persistent cookie on first Teams load so subsequent navigations are also bypassed
+      response.cookies.set('inTeams', 'true', {
+        sameSite: 'none',
+        secure: true,
+        httpOnly: true,
+        path: '/',
+      });
+    }
+    return response;
   }
-
-  // --- existing auth logic below (untouched) ---
-  // e.g., check session cookie, redirect to /login, etc.
+  // ... existing auth logic unchanged for browser access ...
 }
 ```
 
-For other frameworks (Express, Fastify, etc.), apply the same pattern: check for `inTeams=true` in the query string before any auth redirect logic.
+The `?inTeams=true` query param only survives the initial page load from the manifest's `contentUrl`. All subsequent client-side navigation (clicking links, using router.push) loses the param. The cookie bridges this gap.
+
+For other frameworks (Express, Fastify, etc.), apply the same pattern: check for `inTeams=true` in the query string or a persistent cookie before any auth redirect logic.
 
 **Important:** This is safe because `inTeams=true` only skips the *redirect to a login page*. The client still needs to prove it's in Teams via the SDK (next step). A browser user who manually adds `?inTeams=true` would land on the app but get no session/identity unless they're actually inside the Teams iframe where `app.initialize()` succeeds.
 
@@ -169,7 +180,24 @@ export const useTeamsContext = () => useContext(TeamsCtx);
 
 Wrap the app's root layout with this provider. Components can then call `useTeamsContext()` to check `isTeams` and access the user's identity without any login flow.
 
-#### 4. Cookie considerations
+#### 4. Client-side auth context must use Teams identity
+
+The middleware bypass is only half the fix. The client-side auth provider/context also needs a Teams code path. When `isTeams` is true from TeamsContext, the auth provider should use `userPrincipalName` and `displayName` from the Teams SDK as the authenticated user — do NOT hit the session endpoint or check for cookies.
+
+Find the project's auth provider (AuthProvider, UserProvider, SessionProvider, etc.) and add:
+```typescript
+const { isTeams, teamsUser } = useTeamsContext();
+
+// If in Teams, use Teams identity — don't check session cookies
+if (isTeams && teamsUser) {
+  // Use teamsUser.email / teamsUser.displayName as the authenticated user
+  // Skip any session fetch or redirect-to-login logic
+}
+```
+
+Without this, the app will hit /api/auth/session, get no cookie (it's an iframe), and show a login screen even though middleware let the page through.
+
+#### 5. Cookie considerations
 
 When the app is loaded inside the Teams iframe, session cookies **must** use `sameSite: 'none'` and `secure: true` — otherwise the browser blocks them in the cross-origin iframe context (especially Safari and Edge).
 
@@ -190,7 +218,7 @@ const cookieOptions = {
 
 If using NextAuth / Auth.js, this means customizing the cookie options in the auth config. If using a custom session system, apply it wherever `Set-Cookie` is issued.
 
-#### 5. What NOT to do
+#### 6. What NOT to do
 
 - **Don't remove existing auth.** Browser users still need it. The dual-auth pattern adds a bypass lane — it never deletes the original lane.
 - **Don't require separate builds or deployments.** One codebase, one deployment, two auth paths selected at runtime by the `inTeams` query param.
@@ -303,6 +331,61 @@ For each issue:
 4. Apply fixes but do NOT commit — let the user review the changes and commit when ready
 
 If no blockers found, say: "No Teams iframe blockers detected — your codebase looks ready." Move to Phase 2.
+
+### Native Teams tabs (recommended for apps with sidebar navigation)
+
+If the app has sidebar or tab-based navigation, ask the user:
+
+> "Your app has sidebar navigation with routes like /connections, /settings, etc. Would you like to convert these into **native Teams tabs**? This means:
+> - Each route gets its own tab in the Teams tab bar at the top
+> - The app's sidebar and header can be hidden in Teams (cleaner, less redundant chrome)
+> - Teams handles the navigation instead of your app's router
+>
+> This is the recommended approach for dashboard-style apps."
+
+If yes:
+
+1. **Scan for routes**: Read the sidebar/navigation component to find all routes
+2. **Hide shell in Teams**: Wrap sidebar and header with `{!isTeams && <Sidebar />}` and `{!isTeams && <Topbar />}`
+3. **Add tab navigation interceptor**: In the app layout, add a global click interceptor that catches `<a>` clicks to tab routes and uses `pages.currentApp.navigateTo({ pageId })` instead of client-side routing:
+
+```typescript
+// In the root layout, when in Teams context:
+useEffect(() => {
+  if (!isTeams) return;
+  
+  const tabRoutes: Record<string, string> = {
+    '/connections': 'connections',
+    '/settings': 'settings',
+    '/resources': 'resources',
+    // ... map route paths to staticTab entityIds
+  };
+
+  function handleClick(e: MouseEvent) {
+    const anchor = (e.target as Element).closest('a');
+    if (!anchor) return;
+    const href = anchor.getAttribute('href');
+    if (href && tabRoutes[href]) {
+      e.preventDefault();
+      pages.currentApp.navigateTo({ pageId: tabRoutes[href] });
+    }
+  }
+
+  document.addEventListener('click', handleClick);
+  return () => document.removeEventListener('click', handleClick);
+}, [isTeams]);
+```
+
+4. **Update Phase 2 manifest**: Generate multiple `staticTabs` entries, one per route:
+```json
+"staticTabs": [
+  { "entityId": "home", "name": "Home", "contentUrl": "{{app_url}}?inTeams=true", "websiteUrl": "{{app_url}}", "scopes": ["personal"] },
+  { "entityId": "connections", "name": "Connections", "contentUrl": "{{app_url}}/connections?inTeams=true", "websiteUrl": "{{app_url}}/connections", "scopes": ["personal"] },
+  ...
+]
+```
+
+Without the interceptor, SPA client-side navigation and Teams tab navigation are completely disconnected — users click a link, the content changes, but Teams still shows the old tab as active.
 
 ## Phase 2: Generate Manifest
 
@@ -645,6 +728,8 @@ If this is the first custom app for the org, make sure custom apps are enabled:
 - **Upload fails with a schema error:** The package may need an update — let me know and I'll regenerate it
 - **App doesn't appear after a few hours:** Check that custom apps are enabled in org-wide settings (above)
 - **Users can't find it:** The app may need to be set to **Allowed** status on the Manage apps page, or users may need an app setup policy that includes it
+- **Updating an existing app:** Regular users can't update — they only see "View details" and "Copy link" in Manage your apps. To update, delete the old app and re-submit the new zip via "Upload an app → Submit an app to your org."
+- **Re-submission after deletion:** Always generate a fresh UUID and bump the version number (e.g., 1.0.0 → 1.1.0). Teams may reject or silently ignore a reused app ID from a recently deleted app.
 
 Let me know when it's uploaded — thanks!
 
@@ -677,3 +762,7 @@ Use this if the user hits problems at any phase:
 | Works in browser, broken in Teams | Native dialog / popup / storage blocker | Re-run Phase 1 scan |
 | Icons rejected | Wrong dimensions or outline uses color | `color.png` must be exactly 192x192, `outline.png` exactly 32x32 white-on-transparent |
 | App uploaded but users can't find it | App not allowed or not pinned | IT needs to set the app to "Allowed" on the Manage apps page, or pin it via app setup policies |
+| Login screen despite middleware bypass | Auth provider still checking session endpoint | Auth provider must check `isTeams` and use Teams SDK identity instead of session cookies |
+| Auth works on first page but breaks on navigation | `?inTeams=true` lost on client-side navigation | Set an `inTeams` cookie on first Teams load; check cookie in middleware on subsequent requests |
+| In-page links don't switch Teams tabs | SPA client-side routing doesn't notify Teams | Add click interceptor that calls `pages.currentApp.navigateTo()` for tab routes |
+| Re-upload rejected after deleting old app | Teams caches the old app ID | Generate a fresh UUID and bump the version number |
